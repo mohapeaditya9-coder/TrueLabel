@@ -29,7 +29,7 @@ def test_upload_valid_jpeg():
 
     assert "scan_id" in data
     assert data["original_filename"] == "test_label.jpg"
-    assert data["status"] == "pending"
+    assert data["status"] == "processed"
     assert data["file_size"] > 0
     assert os.path.exists(data["image_path"])
 
@@ -38,7 +38,7 @@ def test_upload_valid_jpeg():
     try:
         record = db.query(ProductScan).filter(ProductScan.scan_id == data["scan_id"]).first()
         assert record is not None
-        assert record.status == "pending"
+        assert record.status == "processed"
         assert record.original_filename == "test_label.jpg"
         assert record.file_size == data["file_size"]
     finally:
@@ -53,7 +53,7 @@ def test_upload_valid_png():
     assert response.status_code == 201
     data = response.json()
     assert data["scan_id"] is not None
-    assert data["status"] == "pending"
+    assert data["status"] == "processed"
 
 
 def test_upload_invalid_extension():
@@ -85,5 +85,5 @@ def test_get_scan_record_by_id():
     assert get_res.status_code == 200
     data = get_res.json()
     assert data["scan_id"] == scan_id
-    assert data["status"] == "pending"
+    assert data["status"] == "processed"
     assert data["original_filename"] == "red_label.jpg"
