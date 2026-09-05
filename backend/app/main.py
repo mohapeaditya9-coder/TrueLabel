@@ -1,7 +1,10 @@
+import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from .models.database import engine, Base
 from .routers import upload_router, scan_router, reports_router, dashboard_router
+from .services.storage_service import UPLOAD_DIR
 
 # Initialize database tables
 Base.metadata.create_all(bind=engine)
@@ -20,6 +23,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Mount /uploads to serve stored label images for UI preview
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 
 # Include routers
 app.include_router(upload_router)

@@ -1,5 +1,6 @@
 from .ocr_service import OCRService
 from .rule_engine import RuleEngine
 from .report_service import ReportService
+from .storage_service import StorageService
 
-__all__ = ["OCRService", "RuleEngine", "ReportService"]
+__all__ = ["OCRService", "RuleEngine", "ReportService", "StorageService"]
