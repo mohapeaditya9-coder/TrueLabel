@@ -8,6 +8,8 @@ from ..models.scan import ProductScan
 from ..schemas.scan import ScanUploadResponse
 from ..services.storage_service import StorageService
 from ..services.ocr_service import OCRService
+from ..services.field_classifier import FieldClassifier
+from ..services.rule_engine import RuleEngine
 
 logger = logging.getLogger(__name__)
 
@@ -18,8 +20,8 @@ router = APIRouter(prefix="/api/scan", tags=["Scan & Upload"])
     "/upload",
     response_model=ScanUploadResponse,
     status_code=status.HTTP_201_CREATED,
-    summary="Upload commodity label image and trigger OCR",
-    description="Accepts an image file (JPG/PNG/WEBP up to 10MB), stores it on disk, automatically executes EasyOCR extraction, and updates the ProductScan database record.",
+    summary="Upload commodity label image, trigger OCR, classify fields & evaluate compliance",
+    description="Accepts an image file (JPG/PNG/WEBP up to 10MB), stores it on disk, automatically executes EasyOCR extraction, classifies mandatory LMPC fields, evaluates compliance rules, and updates the ProductScan database record.",
 )
 async def upload_label_image(
     file: UploadFile = File(...),
@@ -70,26 +72,34 @@ async def upload_label_image(
     db.commit()
     db.refresh(scan_record)
 
-    # 3. Synchronously trigger OCR extraction
+    # 3. Synchronously trigger OCR extraction & Field Classification & Rule Engine
     # =========================================================================
-    # PHASE 2 ARCHITECTURAL NOTE / PRODUCTION IMPROVEMENT:
-    # For hackathon simplicity and immediate client feedback, OCR processing
-    # is executed synchronously within this request cycle.
-    # In a high-throughput production environment, this should be offloaded to
-    # an asynchronous task queue (e.g., Celery, Redis Queue, or FastAPI
-    # BackgroundTasks) paired with WebSockets or polling for status updates
-    # to avoid blocking request worker threads during intensive neural model inference.
+    # PHASE 2/3/4 ARCHITECTURAL NOTE / PRODUCTION IMPROVEMENT:
+    # For hackathon simplicity and immediate client feedback, OCR processing,
+    # field classification, and rule evaluation are executed synchronously here.
+    # In production, offload to background queues (Celery/ARQ/Redis) with WebSockets.
     # =========================================================================
     try:
         ocr_service = OCRService()
         ocr_blocks = ocr_service.extract_text(full_file_path)
         scan_record.ocr_results = ocr_blocks
+
+        # Classify fields
+        classifier = FieldClassifier()
+        classified = classifier.classify_blocks(ocr_blocks)
+        scan_record.classified_fields = classified
+
+        # Evaluate against pure config-driven Rule Engine
+        engine = RuleEngine()
+        compliance_report = engine.evaluate(classified, ocr_blocks)
+        scan_record.compliance_results = compliance_report
+
         scan_record.status = "processed"
-        logger.info(f"Scan {scan_id}: Extracted {len(ocr_blocks)} OCR text blocks.")
-    except Exception as ocr_err:
-        logger.error(f"Scan {scan_id}: OCR extraction error: {ocr_err}")
+        logger.info(f"Scan {scan_id}: Processed with {len(compliance_report.get('violations', []))} violations.")
+    except Exception as err:
+        logger.error(f"Scan {scan_id}: Processing error: {err}")
         scan_record.status = "failed"
-        scan_record.ocr_results = [{"error": str(ocr_err)}]
+        scan_record.ocr_results = [{"error": str(err)}]
 
     db.commit()
     db.refresh(scan_record)
